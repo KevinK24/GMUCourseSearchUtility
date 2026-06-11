@@ -1,5 +1,7 @@
 # gmu-courses
 
+[![tests](https://github.com/KevinK24/GMUCourseSearchUtility/actions/workflows/test.yml/badge.svg)](https://github.com/KevinK24/GMUCourseSearchUtility/actions/workflows/test.yml)
+
 A small command-line tool for searching George Mason University's Schedule of
 Classes — with day/time/level filters, conflict-aware coloring against your
 saved schedule, and a "courses I've already taken" file so the same red row
@@ -52,6 +54,13 @@ without clicking through Patriot Web's pagination."
   re-take them by accident.
 - **Cache results on disk** — a 1-hour TTL means re-searching the same
   subject is instant. `--fresh` bypasses, `gmu cache clear` resets.
+- **Export your schedule** to a `.ics` calendar file that imports directly
+  into Apple Calendar, Google Calendar, or Outlook — recurring weekly events
+  through the end of the term, with location and instructor in the
+  description.
+- **Interactive picker** (`gmu search ... --pick`) — after the table renders,
+  drop into a checkbox list (arrow keys + space to toggle, Enter to commit)
+  to append CRNs to your schedule without retyping anything.
 
 ## Install
 
@@ -123,6 +132,7 @@ gmu show <CRN>                         Full detail for a section by CRN (cache l
 gmu schedule path | edit | show        Inspect / edit your schedule file
 gmu schedule add <CRN>                 Append a CRN
 gmu schedule remove <CRN>              Comment out the line (recoverable)
+gmu schedule export [-o FILE]          Write the schedule as a .ics calendar file
 
 gmu history path | edit | show         Inspect / edit your taken-courses file
 gmu history add <SUBJECT> <NUMBER>     Mark a course as already taken (forgiving parser)
@@ -147,6 +157,7 @@ gmu cache path | clear                 Manage the disk cache
 | `--max-level <N>` | Course number ≤ N (pair with `--min-level` for ranges) |
 | `--open` | Only sections with open seats |
 | `--no-conflicts` | Hide sections that overlap any CRN in your schedule |
+| `--pick` | After the table, open an interactive checkbox picker to add CRN(s) to your schedule |
 | `--fresh` | Bypass disk cache, re-fetch from Banner |
 
 At least one of `--subject`, `--course`, or `--keyword` is required — an
@@ -235,6 +246,30 @@ Banner is **stateful** on the server side — every search reuses the previous
 search's filters unless you reset between calls. `BannerClient._select_term`
 calls `/ssb/classSearch/resetDataForm` before each query for that reason.
 
+## Calendar export
+
+Once you've populated `my_schedule.txt` with CRNs you're enrolled in and run
+a search covering each of their subjects (so they're cached and resolvable):
+
+```bash
+gmu schedule export -o fall26.ics
+# Wrote 8 event(s) for 5 section(s) to fall26.ics.
+```
+
+Then:
+
+- **macOS** — double-click the `.ics` file; Calendar prompts to choose a
+  calendar (or create one) and imports all events.
+- **Google Calendar** — open Google Calendar in a browser → Settings → Import
+  & export → pick the file and a target calendar.
+- **Outlook** — File → Open & Export → Import/Export → "Import an iCalendar
+  (.ics) or vCalendar file" → choose the file.
+
+Each section's meetings become weekly-recurring events from the first matching
+weekday on/after the term start through the term end, with the meeting
+location and instructor in the event description. Async sections (no
+scheduled days/times) are skipped — they have no calendar slot.
+
 ## Development
 
 ```bash
@@ -242,9 +277,11 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-Tests are offline-by-default — model and filter tests run against captured
-fixtures in `tests/fixtures/`. The fixtures can be regenerated against the
-live API by hitting the same endpoints `BannerClient` uses.
+Tests are offline — model, filter, history, and iCalendar tests run against
+captured fixtures in `tests/fixtures/`. CI runs the same suite on Python 3.11,
+3.12, and 3.13 via GitHub Actions on every push and PR. The fixtures can be
+regenerated against the live API by hitting the same endpoints `BannerClient`
+uses.
 
 ## What this doesn't do
 

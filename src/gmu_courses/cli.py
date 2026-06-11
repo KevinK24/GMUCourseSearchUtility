@@ -6,11 +6,14 @@ import sys
 import click
 import httpx
 
+from pathlib import Path
+
 from . import __version__
 from .banner import BannerClient, BannerError
 from . import cache
 from . import filters as F
 from . import history as hist
+from . import ical
 from . import schedule as sched
 from .models import Section, Term
 from .render import console, render_section_detail, render_sections, render_terms
@@ -47,10 +50,12 @@ Examples:
   gmu search -s CS --min-level 300                CS courses at 300-level and above (upper division+)
   gmu search -s CS --min-level 300 --max-level 499  Undergrad upper-division CS only (300s and 400s)
   gmu search -s MATH --no-conflicts               Hide sections that overlap CRNs in your saved schedule
+  gmu search -s CS -c 211 --pick                  Interactive picker — space toggles, enter adds to schedule
   gmu show 77863                                  Details for a CRN you've seen in a search
   gmu schedule edit                               Open your schedule file in your editor
   gmu schedule add 77863                          Append a CRN to your schedule
   gmu schedule show                               Print what's currently in your schedule
+  gmu schedule export -o fall26.ics               Export your schedule as a .ics calendar file
   gmu history add CS 211                          Mark a course as already taken (colors search rows red)
   gmu history edit                                Bulk-edit the list of courses you've taken
   gmu cache clear                                 Wipe the local result cache
@@ -95,6 +100,7 @@ def terms_cmd() -> None:
 @click.option("--max-level", "max_level_n", type=int, help="Course number ≤ N. Pair with --min-level for a range, e.g. 300 to 499 for undergrad upper.")
 @click.option("--open", "open_only", is_flag=True, help="Only sections with open seats.")
 @click.option("--no-conflicts", "no_conflicts", is_flag=True, help="Hide sections that overlap your saved schedule (see `gmu schedule`).")
+@click.option("--pick", is_flag=True, help="After the table prints, drop into an interactive checkbox picker to add CRN(s) to your schedule.")
 @click.option("--fresh", is_flag=True, help="Bypass disk cache and re-fetch from Banner.")
 def search_cmd(
     term_code: str | None,
@@ -109,6 +115,7 @@ def search_cmd(
     max_level_n: int | None,
     open_only: bool,
     no_conflicts: bool,
+    pick: bool,
     fresh: bool,
 ) -> None:
     """Search for sections in a term.
@@ -219,6 +226,70 @@ def search_cmd(
         taken_courses=taken or None,
         scheduled_sections=my_sections or None,
     )
+
+    if pick:
+        _interactive_pick(sections, my_sections, taken)
+
+
+def _interactive_pick(
+    sections: list[Section],
+    my_sections: list[Section],
+    taken: set[str],
+) -> None:
+    """Show a checkbox picker over add-able sections, append selected CRNs to schedule."""
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        click.echo(
+            "(--pick requires an interactive terminal; skipping)",
+            err=True,
+        )
+        return
+
+    scheduled_crns = {s.crn for s in my_sections}
+    candidates = [
+        s for s in sections
+        if s.subject_course not in taken and s.crn not in scheduled_crns
+    ]
+    if not candidates:
+        click.echo("(nothing to pick — every result is already in your schedule or history)")
+        return
+
+    try:
+        import questionary
+    except ImportError:
+        raise click.ClickException(
+            "--pick needs the `questionary` package. Install with: pip install questionary"
+        )
+
+    def _label(s: Section) -> str:
+        if s.meetings and s.meetings[0].begin is not None:
+            m = s.meetings[0]
+            days = "".join(d for d in "MTWRFSU" if d in m.days)
+            when = f"{m.begin.strftime('%H:%M')}-{m.end.strftime('%H:%M')}" if m.end else m.begin.strftime("%H:%M")
+        else:
+            days, when = "async", ""
+        seats = f"{s.seats_available}/{s.seats_total}"
+        instructor = s.instructors[0].split(",")[0] if s.instructors else "TBA"
+        return f"{s.crn}  {s.subject_course:9s} sec {s.section_number or '?':<3s}  {days:5s} {when:<11s}  {instructor:<20s}  {seats:>7s}  {s.title}"
+
+    choices = [questionary.Choice(title=_label(s), value=s) for s in candidates]
+    picked = questionary.checkbox(
+        f"Select CRN(s) to add to your schedule ({len(candidates)} option(s); space=toggle, enter=confirm):",
+        choices=choices,
+    ).ask()
+
+    if not picked:
+        click.echo("(nothing added)")
+        return
+
+    added_count = 0
+    for s in picked:
+        note = f"{s.subject_course} sec {s.section_number or '?'}"
+        if sched.add_crn(s.crn, note=note):
+            added_count += 1
+    if added_count:
+        click.echo(f"Added {added_count} CRN(s) to {sched.SCHEDULE_FILE.name}.")
+    else:
+        click.echo("(all selected CRNs were already in your schedule)")
 
 
 @main.command("show")
@@ -370,6 +441,44 @@ def schedule_show() -> None:
             f"{', '.join(missing)}.\nRun `gmu search` covering their subject, then retry.",
             err=True,
         )
+
+
+@schedule_group.command("export")
+@click.option(
+    "--output",
+    "-o",
+    "output_path",
+    type=click.Path(dir_okay=False, writable=True, resolve_path=True, path_type=Path),
+    default=Path("my_gmu_schedule.ics"),
+    show_default=True,
+    help="Where to write the .ics file.",
+)
+def schedule_export(output_path: Path) -> None:
+    """Export your schedule to an .ics file (Apple/Google/Outlook Calendar)."""
+    entries = sched.read_entries()
+    if not entries:
+        raise click.ClickException(
+            f"Schedule is empty. Add CRNs first: `gmu schedule add <CRN>` or edit {sched.SCHEDULE_FILE}."
+        )
+    resolved, missing = sched.resolve(entries)
+    if missing:
+        click.echo(
+            f"(warning: {len(missing)} CRN(s) not in cache, skipped: {', '.join(missing)}. "
+            "Run `gmu search` covering their subject and retry to include them.)",
+            err=True,
+        )
+    if not resolved:
+        raise click.ClickException(
+            "None of the CRNs in your schedule could be resolved from the cache. "
+            "Run `gmu search` covering each subject first."
+        )
+    body = ical.build_calendar(resolved)
+    output_path.write_text(body, encoding="utf-8", newline="")
+    n_events = body.count("BEGIN:VEVENT")
+    click.echo(
+        f"Wrote {n_events} event(s) for {len(resolved)} section(s) to {output_path}.\n"
+        "Import: double-click on macOS/Windows, or 'Import' in Google Calendar settings."
+    )
 
 
 @main.group("cache")
