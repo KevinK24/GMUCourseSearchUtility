@@ -33,6 +33,7 @@ Examples:
   gmu search -s CS --modality online --open       Online CS sections with open seats
   gmu search -s CS --min-level 300                CS courses at 300-level and above (upper division+)
   gmu search -s CS --min-level 300 --max-level 499  Undergrad upper-division CS only (300s and 400s)
+  gmu search -s ISA --min-level 650               Doctoral-level ISA courses only
   gmu search -s MATH --no-conflicts               Hide sections that overlap CRNs in your saved schedule
   gmu search -s CS -c 211 --pick                  Interactive picker — space toggles, enter adds to schedule
   gmu show 77863                                  Details for a CRN you've seen in a search

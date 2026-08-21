@@ -70,6 +70,27 @@ def test_graduate_flag_overrides_upper_level():
     assert not preds[0](_section(course="400"))
 
 
+def test_doctoral_flag_wins_over_all_lower_presets():
+    preds, _ = menu._build_predicates(
+        _params(flags={"min300", "min500", "min650"}), []
+    )
+    assert len(preds) == 1
+    assert preds[0](_section(course="650"))
+    assert preds[0](_section(course="799"))
+    assert not preds[0](_section(course="600"))
+    assert not preds[0](_section(course="500"))
+
+
+@pytest.mark.parametrize(
+    "flag,boundary,below",
+    [("min300", "300", "299"), ("min500", "500", "499"), ("min650", "650", "649")],
+)
+def test_level_presets_are_inclusive_at_the_boundary(flag, boundary, below):
+    preds, _ = menu._build_predicates(_params(flags={flag}), [])
+    assert preds[0](_section(course=boundary))
+    assert not preds[0](_section(course=below))
+
+
 def test_bad_day_spec_warns_instead_of_crashing():
     params = _params(days_spec="XYZ")
     preds, warns = menu._build_predicates(params, [])
@@ -152,3 +173,62 @@ def test_section_label_handles_async():
     label = menu._section_label(async_sec)
     assert "async" in label
     assert "TBA" in label
+
+
+def test_describe_uses_readable_level_labels():
+    desc = menu._describe(_params(flags={"min650"}), kept=3, total=9, source="live")
+    assert "level>=650" in desc
+    assert "min650" not in desc
+
+
+# --------------------------------------------------------------------------
+# adding courses to history
+# --------------------------------------------------------------------------
+
+def test_split_course_specs_splits_on_commas_only():
+    """'CS 555' has a space in it, so whitespace splitting would corrupt entries."""
+    assert menu.split_course_specs("CS 555, ISA 650") == ["CS 555", "ISA 650"]
+    assert menu.split_course_specs("  CS555 ,, ISA650 , ") == ["CS555", "ISA650"]
+    assert menu.split_course_specs("") == []
+    assert menu.split_course_specs("   ") == []
+    assert menu.split_course_specs("CS 555") == ["CS 555"]
+
+
+@pytest.fixture
+def temp_history(tmp_path, monkeypatch):
+    """Point the history module at a throwaway file."""
+    monkeypatch.setattr(menu.hist, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(menu.hist, "HISTORY_FILE", tmp_path / "my_history.txt")
+    return tmp_path / "my_history.txt"
+
+
+def test_add_courses_to_history_writes_and_normalizes(temp_history):
+    added, dupes, bad = menu.add_courses_to_history("cs555, ISA 650, isa652")
+    assert added == ["CS 555", "ISA 650", "ISA 652"]
+    assert dupes == [] and bad == []
+    assert menu.hist.read_courses() == {"CS 555", "ISA 650", "ISA 652"}
+
+
+def test_add_courses_to_history_reports_duplicates(temp_history):
+    menu.add_courses_to_history("CS 555")
+    added, dupes, bad = menu.add_courses_to_history("CS 555, ISA 650")
+    assert added == ["ISA 650"]
+    assert dupes == ["CS 555"]
+    assert bad == []
+
+
+def test_add_courses_to_history_reports_unparseable(temp_history):
+    added, dupes, bad = menu.add_courses_to_history("CS 555, not-a-course, 999")
+    assert added == ["CS 555"]
+    assert bad == ["not-a-course", "999"]
+    # A bad entry must not block the good ones in the same batch.
+    assert menu.hist.read_courses() == {"CS 555"}
+
+
+def test_add_courses_survives_a_pasted_block(temp_history):
+    """The realistic case: pasting a comma-joined transcript list."""
+    raw = "CS 555, CS 583, CS 700, INFS 774, ISA 562, ISA 650, ISA 652, ISA 656, ISA 681, ISA 797"
+    added, dupes, bad = menu.add_courses_to_history(raw)
+    assert len(added) == 10
+    assert not dupes and not bad
+    assert "INFS 774" in menu.hist.read_courses()

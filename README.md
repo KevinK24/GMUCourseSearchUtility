@@ -41,7 +41,8 @@ without clicking through Patriot Web's pagination."
   - Days of the week (`--days MWF`)
   - Time window (`--after 10:00 --before 16:00`)
   - Modality (`--modality in-person` / `online` / `hybrid`)
-  - Course level (`--min-level 300 --max-level 499` for undergrad upper)
+  - Course level (`--min-level 300 --max-level 499` for undergrad upper,
+    `--min-level 650` for doctoral)
   - Open seats only (`--open`)
   - No conflicts with your saved schedule (`--no-conflicts`)
 - **See conflicts at a glance** — every search result is color-coded against
@@ -265,6 +266,18 @@ calls `/ssb/classSearch/resetDataForm` before each query for that reason.
 If you'd rather not open a terminal and remember flags, `gmu menu` gives you a
 guided prompt flow — pick a term, type a subject, toggle filters with the
 spacebar, and add CRNs straight to your schedule from the results.
+
+From the menu you can:
+
+- **Search** with one-keystroke filter presets: open seats, hide conflicts,
+  in-person / online, and course-level presets for upper-division (300+),
+  graduate (500+), and doctoral (650+). The most restrictive level preset
+  wins if you pick several.
+- **View your schedule** and **export it to a calendar**.
+- **Manage courses you've taken** — view, add (comma-separated, so you can
+  paste a whole transcript list at once), remove via checkbox, or pop the
+  file open in your editor.
+- **Change term** without restarting.
 
 The `launcher/` directory wraps that in a double-clickable entry point:
 

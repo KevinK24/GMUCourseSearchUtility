@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import click
 import httpx
 from rich.panel import Panel
 
@@ -170,6 +171,7 @@ def _prompt_search_params(questionary) -> dict | None:
             questionary.Choice("Online only", value="online"),
             questionary.Choice("Upper-level only (300+)", value="min300"),
             questionary.Choice("Graduate only (500+)", value="min500"),
+            questionary.Choice("Doctoral only (650+)", value="min650"),
             questionary.Choice("More filters (days / time window)…", value="advanced"),
         ],
     ).ask()
@@ -202,6 +204,21 @@ def _prompt_search_params(questionary) -> dict | None:
     }
 
 
+# Most restrictive first — _build_predicates applies the first match and stops.
+_LEVEL_PRESETS = (("min650", 650), ("min500", 500), ("min300", 300))
+
+# How each filter flag reads in the results header. "advanced" is UI-only.
+_FLAG_LABELS = {
+    "open": "open",
+    "no_conflicts": "no-conflicts",
+    "in-person": "in-person",
+    "online": "online",
+    "min300": "level>=300",
+    "min500": "level>=500",
+    "min650": "level>=650",
+}
+
+
 def _build_predicates(params: dict, my_sections: list[Section]) -> tuple[list, list[str]]:
     """Turn menu params into filter predicates. Returns (predicates, warnings).
 
@@ -230,10 +247,11 @@ def _build_predicates(params: dict, my_sections: list[Section]) -> tuple[list, l
         predicates.append(F.modality_is("in-person"))
     if "online" in flags:
         predicates.append(F.modality_is("online"))
-    if "min500" in flags:
-        predicates.append(F.min_level(500))
-    elif "min300" in flags:
-        predicates.append(F.min_level(300))
+    # Level presets are cumulative in intent, so the most restrictive one wins.
+    for flag, level in _LEVEL_PRESETS:
+        if flag in flags:
+            predicates.append(F.min_level(level))
+            break
     if "open" in flags:
         predicates.append(F.open_seats)
     if "no_conflicts" in flags:
@@ -258,7 +276,7 @@ def _describe(params: dict, kept: int, total: int, source: str) -> str:
         if params[key]:
             parts.append(f"{label}={params[key]}")
     for flag in sorted(params["flags"] - {"advanced"}):
-        parts.append(flag)
+        parts.append(_FLAG_LABELS.get(flag, flag))
     desc = ", ".join(parts) or "all sections"
     if kept != total:
         desc += f"  ({kept}/{total} after filters)"
@@ -336,8 +354,8 @@ def _do_show_history() -> None:
     courses = sorted(hist.read_courses())
     if not courses:
         console.print(
-            f"[yellow]History is empty.[/yellow] Edit {hist.HISTORY_FILE} to list "
-            "courses you've already taken."
+            f"[yellow]History is empty.[/yellow] Use \"Add course(s)\" below, or "
+            f"edit {hist.HISTORY_FILE}."
         )
         return
     console.print(
@@ -347,6 +365,102 @@ def _do_show_history() -> None:
             expand=False,
         )
     )
+
+
+def split_course_specs(raw: str) -> list[str]:
+    """Split a comma-separated course list into individual specs.
+
+    Commas only — 'CS 555' contains a space, so splitting on whitespace would
+    break the common 'SUBJECT NUMBER' form.
+    """
+    return [chunk.strip() for chunk in raw.split(",") if chunk.strip()]
+
+
+def add_courses_to_history(raw: str) -> tuple[list[str], list[str], list[str]]:
+    """Add every course in a comma-separated string.
+
+    Returns (added, already_present, unparseable).
+    """
+    added: list[str] = []
+    duplicates: list[str] = []
+    bad: list[str] = []
+    for spec in split_course_specs(raw):
+        ok, norm = hist.add_course(spec)
+        if norm is None:
+            bad.append(spec)
+        elif ok:
+            added.append(norm)
+        else:
+            duplicates.append(norm)
+    return added, duplicates, bad
+
+
+def _do_add_history(questionary) -> None:
+    raw = questionary.text(
+        "Course(s) you've taken — comma-separated (e.g. CS 555, ISA 650, CS583):"
+    ).ask()
+    if not raw or not raw.strip():
+        console.print("[dim](nothing added)[/dim]")
+        return
+
+    added, duplicates, bad = add_courses_to_history(raw)
+
+    if added:
+        console.print(f"[green]Added {len(added)}:[/green] {', '.join(added)}")
+    if duplicates:
+        console.print(f"[yellow]Already there ({len(duplicates)}):[/yellow] {', '.join(duplicates)}")
+    if bad:
+        console.print(
+            f"[red]Couldn't parse ({len(bad)}):[/red] {', '.join(repr(b) for b in bad)}\n"
+            "[dim]Expected 'SUBJECT NUMBER' like 'CS 555' or 'cs555'.[/dim]"
+        )
+    if not (added or duplicates or bad):
+        console.print("[dim](nothing added)[/dim]")
+
+
+def _do_remove_history(questionary) -> None:
+    courses = sorted(hist.read_courses())
+    if not courses:
+        console.print("[yellow]History is empty — nothing to remove.[/yellow]")
+        return
+    picked = questionary.checkbox(
+        "Select course(s) to remove (space=toggle, enter=confirm):",
+        choices=courses,
+    ).ask()
+    if not picked:
+        console.print("[dim](nothing removed)[/dim]")
+        return
+    removed = [c for c in picked if hist.remove_course(c)[0]]
+    if removed:
+        console.print(f"[green]Removed {len(removed)}:[/green] {', '.join(removed)}")
+    else:
+        console.print("[yellow](nothing matched)[/yellow]")
+
+
+def _do_history_menu(questionary) -> None:
+    """Submenu for viewing and editing the taken-courses list."""
+    while True:
+        _do_show_history()
+        action = questionary.select(
+            "Courses I've taken:",
+            choices=[
+                questionary.Choice("Add course(s)", value="add"),
+                questionary.Choice("Remove course(s)", value="remove"),
+                questionary.Choice("Open the file in my editor", value="edit"),
+                questionary.Choice("Back to main menu", value="back"),
+            ],
+        ).ask()
+        if action is None or action == "back":
+            return
+        if action == "add":
+            _do_add_history(questionary)
+        elif action == "remove":
+            _do_remove_history(questionary)
+        elif action == "edit":
+            path = hist.ensure_file()
+            console.print(f"[dim]Opening {path}…[/dim]")
+            click.launch(str(path))
+        console.print()
 
 
 def _do_export(questionary) -> None:
@@ -414,7 +528,9 @@ def run_menu() -> None:
                     choices=[
                         questionary.Choice("Search for courses", value="search"),
                         questionary.Choice("View my schedule", value="schedule"),
-                        questionary.Choice("View courses I've taken", value="history"),
+                        questionary.Choice(
+                            "Courses I've taken (view / add / remove)", value="history"
+                        ),
                         questionary.Choice("Export schedule to calendar (.ics)", value="export"),
                         questionary.Choice(
                             f"Change term (currently {term.description})", value="term"
@@ -430,7 +546,7 @@ def run_menu() -> None:
                 elif action == "schedule":
                     _do_show_schedule()
                 elif action == "history":
-                    _do_show_history()
+                    _do_history_menu(questionary)
                 elif action == "export":
                     _do_export(questionary)
                 elif action == "term":
