@@ -14,33 +14,17 @@ from . import cache
 from . import filters as F
 from . import history as hist
 from . import ical
+from . import menu as menu_mod
 from . import schedule as sched
-from .models import Section, Term
+from . import search as S
+from .models import Section
 from .render import console, render_section_detail, render_sections, render_terms
-
-
-def _pick_default_term(client: BannerClient) -> Term:
-    """First term not marked '(View Only)' — i.e. the next registerable term."""
-    terms = client.list_terms(max_results=10)
-    for t in terms:
-        if "view only" not in t.description.lower():
-            return t
-    return terms[0]
-
-
-def _resolve_term(client: BannerClient, code: str | None) -> Term:
-    if code is None:
-        return _pick_default_term(client)
-    for t in client.list_terms(max_results=20):
-        if t.code == code:
-            return t
-    # Unknown code — still let the user proceed; the search call will error.
-    return Term(code=code, description=f"term {code}")
 
 
 _EPILOG = """\
 \b
 Examples:
+  gmu menu                                        Guided interactive mode — no flags to remember
   gmu terms                                       List semesters and their codes
   gmu search -s CS                                All Computer Science sections (default term)
   gmu search -s CS -c 211                         CS 211 sections only
@@ -165,30 +149,21 @@ def search_cmd(
 
     try:
         with BannerClient() as bc:
-            term = _resolve_term(bc, term_code)
-            raw_sections: list[dict] | None = None
-            if not fresh:
-                raw_sections = cache.load_sections(term.code, subject, course_number, keyword)
-            if raw_sections is None:
-                with console.status(f"Querying {term.description}…", spinner="dots"):
-                    raw_sections = list(
-                        bc.search_raw(
-                            term.code,
-                            subject=subject,
-                            course_number=course_number,
-                            keyword=keyword,
-                        )
-                    )
-                cache.store_sections(term.code, subject, course_number, keyword, raw_sections)
-                source = "live"
-            else:
-                source = "cached"
+            term = S.resolve_term(bc, term_code)
+            with console.status(f"Querying {term.description}…", spinner="dots"):
+                fetched, source = S.fetch_sections(
+                    bc,
+                    term.code,
+                    subject=subject,
+                    course_number=course_number,
+                    keyword=keyword,
+                    fresh=fresh,
+                )
     except BannerError as e:
         raise click.ClickException(str(e)) from e
     except httpx.HTTPError as e:
         raise click.ClickException(f"Network error talking to Banner: {e}") from e
 
-    fetched = [Section.from_json(d) for d in raw_sections]
     sections = F.apply_filters(fetched, predicates) if predicates else fetched
 
     parts = []
@@ -228,68 +203,20 @@ def search_cmd(
     )
 
     if pick:
-        _interactive_pick(sections, my_sections, taken)
+        menu_mod.interactive_pick(sections, my_sections, taken)
 
 
-def _interactive_pick(
-    sections: list[Section],
-    my_sections: list[Section],
-    taken: set[str],
-) -> None:
-    """Show a checkbox picker over add-able sections, append selected CRNs to schedule."""
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
-        click.echo(
-            "(--pick requires an interactive terminal; skipping)",
-            err=True,
-        )
-        return
+@main.command("menu")
+def menu_cmd() -> None:
+    """Launch the guided interactive menu (no flags to remember).
 
-    scheduled_crns = {s.crn for s in my_sections}
-    candidates = [
-        s for s in sections
-        if s.subject_course not in taken and s.crn not in scheduled_crns
-    ]
-    if not candidates:
-        click.echo("(nothing to pick — every result is already in your schedule or history)")
-        return
-
+    This is what the desktop launcher runs. Everything the flag-driven
+    commands do is reachable from here through prompts.
+    """
     try:
-        import questionary
-    except ImportError:
-        raise click.ClickException(
-            "--pick needs the `questionary` package. Install with: pip install questionary"
-        )
-
-    def _label(s: Section) -> str:
-        if s.meetings and s.meetings[0].begin is not None:
-            m = s.meetings[0]
-            days = "".join(d for d in "MTWRFSU" if d in m.days)
-            when = f"{m.begin.strftime('%H:%M')}-{m.end.strftime('%H:%M')}" if m.end else m.begin.strftime("%H:%M")
-        else:
-            days, when = "async", ""
-        seats = f"{s.seats_available}/{s.seats_total}"
-        instructor = s.instructors[0].split(",")[0] if s.instructors else "TBA"
-        return f"{s.crn}  {s.subject_course:9s} sec {s.section_number or '?':<3s}  {days:5s} {when:<11s}  {instructor:<20s}  {seats:>7s}  {s.title}"
-
-    choices = [questionary.Choice(title=_label(s), value=s) for s in candidates]
-    picked = questionary.checkbox(
-        f"Select CRN(s) to add to your schedule ({len(candidates)} option(s); space=toggle, enter=confirm):",
-        choices=choices,
-    ).ask()
-
-    if not picked:
-        click.echo("(nothing added)")
-        return
-
-    added_count = 0
-    for s in picked:
-        note = f"{s.subject_course} sec {s.section_number or '?'}"
-        if sched.add_crn(s.crn, note=note):
-            added_count += 1
-    if added_count:
-        click.echo(f"Added {added_count} CRN(s) to {sched.SCHEDULE_FILE.name}.")
-    else:
-        click.echo("(all selected CRNs were already in your schedule)")
+        menu_mod.run_menu()
+    except menu_mod.MenuUnavailable as e:
+        raise click.ClickException(str(e)) from e
 
 
 @main.command("show")

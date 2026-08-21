@@ -61,6 +61,9 @@ without clicking through Patriot Web's pagination."
 - **Interactive picker** (`gmu search ... --pick`) — after the table renders,
   drop into a checkbox list (arrow keys + space to toggle, Enter to commit)
   to append CRNs to your schedule without retyping anything.
+- **Guided menu** (`gmu menu`) — a prompt-driven front end with no flags to
+  memorize, suitable for a double-clickable desktop shortcut. See
+  [Desktop launcher](#desktop-launcher).
 
 ## Install
 
@@ -100,6 +103,9 @@ include the intermediate. No extra setup on your part.
 
 ## Quickstart
 
+Prefer prompts over flags? Just run `gmu menu` (or set up the
+[desktop launcher](#desktop-launcher)) and skip the rest of this section.
+
 ```bash
 # 1. See what semesters are available
 gmu terms
@@ -125,6 +131,7 @@ gmu search -s CS             # CS 100 is red, sec 001 is yellow, conflicts are m
 ## Command reference
 
 ```
+gmu menu                               Guided interactive mode — no flags to remember
 gmu terms                              List semesters with their codes
 gmu search [filters]                   Search for sections (see filters below)
 gmu show <CRN>                         Full detail for a section by CRN (cache lookup)
@@ -220,10 +227,17 @@ src/gmu_courses/
 ├── models.py     # Section + MeetingTime dataclasses; JSON-to-domain mapping
 ├── filters.py    # Day/time/modality/level/conflict predicates (pure)
 ├── cache.py      # Disk cache for raw search payloads (1-hour TTL)
+├── search.py     # Term resolution + cache-aware fetch, shared by CLI and menu
 ├── schedule.py   # my_schedule.txt parser + CRN add/remove
 ├── history.py    # my_history.txt parser + course add/remove (with normalization)
+├── ical.py       # RFC 5545 calendar generation for schedule export
 ├── render.py     # Rich-based table rendering with row coloring
+├── menu.py       # Interactive menu + section picker (questionary, lazily imported)
 └── cli.py        # click entrypoint, wires everything together
+
+launcher/
+├── gmu-menu.bat           # Double-clickable launcher for `gmu menu`
+└── install-shortcut.ps1   # Creates a Desktop shortcut pointing at the .bat
 ```
 
 The two most fragile layers — and the only ones likely to need attention when
@@ -245,6 +259,28 @@ GET  /ssb/searchResults/searchResults?…        → paginated JSON section list
 Banner is **stateful** on the server side — every search reuses the previous
 search's filters unless you reset between calls. `BannerClient._select_term`
 calls `/ssb/classSearch/resetDataForm` before each query for that reason.
+
+## Desktop launcher
+
+If you'd rather not open a terminal and remember flags, `gmu menu` gives you a
+guided prompt flow — pick a term, type a subject, toggle filters with the
+spacebar, and add CRNs straight to your schedule from the results.
+
+The `launcher/` directory wraps that in a double-clickable entry point:
+
+```powershell
+# Creates "GMU Course Search" on your Desktop, pointing at launcher\gmu-menu.bat
+powershell -ExecutionPolicy Bypass -File .\launcher\install-shortcut.ps1
+```
+
+Double-clicking the shortcut opens a UTF-8 console running `gmu menu`. On a
+clean quit the window closes; if something fails it stays open so you can read
+the error. You can also just run `launcher\gmu-menu.bat` directly, or pin it
+to your taskbar.
+
+The launcher prefers the installed `gmu` console script and falls back to
+`python -m gmu_courses.cli menu`, so it works even if your Python Scripts
+directory isn't on PATH.
 
 ## Calendar export
 
