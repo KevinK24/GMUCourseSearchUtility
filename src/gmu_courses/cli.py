@@ -21,6 +21,27 @@ from .models import Section
 from .render import console, render_section_detail, render_sections, render_terms
 
 
+def _make_output_encoding_safe() -> None:
+    """Degrade unencodable characters instead of crashing on a legacy console.
+
+    Windows consoles often default to cp1252, which can't represent plenty of
+    text we legitimately print — accented instructor names most of all. Without
+    this, rendering such a section raises UnicodeEncodeError mid-table.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, OSError, ValueError):
+            # Not a TextIOWrapper (pytest capture, a pipe, an embedded host) —
+            # nothing to harden, and nothing to complain about.
+            pass
+
+
+# Runs at import so it is in effect before Click renders any help text, which
+# happens before the group callback is invoked.
+_make_output_encoding_safe()
+
+
 _EPILOG = """\
 \b
 Examples:
@@ -81,8 +102,8 @@ def terms_cmd() -> None:
     type=click.Choice(["in-person", "online", "hybrid"], case_sensitive=False),
     help="Filter by modality.",
 )
-@click.option("--min-level", "min_level_n", type=int, help="Course number ≥ N. e.g. --min-level 300 keeps upper-division and graduate courses.")
-@click.option("--max-level", "max_level_n", type=int, help="Course number ≤ N. Pair with --min-level for a range, e.g. 300 to 499 for undergrad upper.")
+@click.option("--min-level", "min_level_n", type=int, help="Course number >= N. e.g. --min-level 300 keeps upper-division and graduate courses.")
+@click.option("--max-level", "max_level_n", type=int, help="Course number <= N. Pair with --min-level for a range, e.g. 300 to 499 for undergrad upper.")
 @click.option("--open", "open_only", is_flag=True, help="Only sections with open seats.")
 @click.option("--no-conflicts", "no_conflicts", is_flag=True, help="Hide sections that overlap your saved schedule (see `gmu schedule`).")
 @click.option("--pick", is_flag=True, help="After the table prints, drop into an interactive checkbox picker to add CRN(s) to your schedule.")

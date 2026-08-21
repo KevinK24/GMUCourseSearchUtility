@@ -496,7 +496,7 @@ def _do_export(questionary) -> None:
         f"[green]Wrote {body.count('BEGIN:VEVENT')} event(s)[/green] for "
         f"{len(resolved)} section(s) to {out}\n"
         "[dim]Double-click it to import into Apple Calendar or Outlook; "
-        "in Google Calendar use Settings → Import & export.[/dim]"
+        "in Google Calendar use Settings > Import & export.[/dim]"
     )
 
 
