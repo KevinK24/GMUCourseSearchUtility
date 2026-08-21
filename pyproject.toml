@@ -46,3 +46,10 @@ Issues = "https://github.com/KevinK24/GMUCourseSearchUtility/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: hits the real Banner API; deselected by default, run with `pytest -m live`",
+]
+# Keep the default suite offline, fast, and deterministic.
+addopts = "-m 'not live'"

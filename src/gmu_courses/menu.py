@@ -313,7 +313,10 @@ def _do_search(questionary, client: BannerClient, term: Term) -> None:
         console.print(f"[red]{e}[/red]")
         return
     except httpx.HTTPError as e:
-        console.print(f"[red]Network error talking to Banner: {e}[/red]")
+        console.print(
+            "[red]Couldn't reach Banner at ssbstureg.gmu.edu.[/red] "
+            f"Check your internet connection.\n[dim]({e})[/dim]"
+        )
         return
 
     sections = F.apply_filters(fetched, predicates) if predicates else fetched
@@ -555,8 +558,15 @@ def run_menu() -> None:
                         term = chosen
                         console.print(f"Term set to [cyan]{term.description}[/cyan]\n")
                 console.print()
-    except (BannerError, httpx.HTTPError) as e:
-        console.print(f"[red]Could not reach Banner: {e}[/red]")
+    except BannerError as e:
+        # Already carries its own explanation (and reporting link, if drift).
+        console.print(f"[red]{e}[/red]")
+        return
+    except httpx.HTTPError as e:
+        console.print(
+            "[red]Couldn't reach Banner at ssbstureg.gmu.edu.[/red] "
+            f"Check your internet connection.\n[dim]({e})[/dim]"
+        )
         return
     except KeyboardInterrupt:
         pass

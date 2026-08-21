@@ -37,7 +37,8 @@ page uses — so **no Patriot Web login is required**.
 [Search filters](#search-filters) · [Row colors](#row-colors) ·
 [Interactive menu](#interactive-menu) · [Calendar export](#calendar-export) ·
 [Your files](#where-your-files-live) · [Troubleshooting](#troubleshooting) ·
-[How it works](#how-it-works) · [Development](#development)
+[How it works](#how-it-works) · [Development](#development) ·
+[Project status](#project-status)
 
 ---
 
@@ -54,44 +55,52 @@ cross-platform, so macOS and Linux should work — but the live-API path is
 routinely exercised only on Windows. The double-click launcher in `launcher/`
 is Windows-only; `gmu menu` gives you the same thing everywhere.
 
-> This package is **not on PyPI** — `pip install gmu-courses` will not find it.
-> Install from this repository using one of the methods below.
+> **Not on PyPI**, deliberately — `pip install gmu-courses` won't find it.
+> See [Project status](#project-status) for the reasoning. Installing from
+> this repo is a single command either way.
 
 ## Install
 
-### Option 1 — pipx (recommended)
+### Recommended — pipx
 
 [pipx](https://pipx.pypa.io/) installs command-line tools into their own
-isolated environment and puts them on your PATH. It sidesteps the
-`externally-managed-environment` error that trips up `pip` on modern
-Linux and Homebrew Python.
+isolated environment and puts them on your PATH. It also sidesteps the
+`externally-managed-environment` error that `pip` throws on modern Linux and
+Homebrew Python.
 
 ```bash
 python -m pip install --user pipx
 python -m pipx ensurepath
-pipx install git+https://github.com/KevinK24/GMUCourseSearchUtility.git
+pipx install https://github.com/KevinK24/GMUCourseSearchUtility/archive/refs/heads/main.zip
 ```
 
-Close and reopen your terminal after `ensurepath` so the PATH change takes
-effect. To update later: `pipx upgrade gmu-courses`. To remove it entirely:
-`pipx uninstall gmu-courses`.
+Reopen your terminal after `ensurepath` so the PATH change takes effect.
 
-### Option 2 — pip into a virtual environment
+That form needs **no git installed** — pip downloads the repo as a zip. If you
+do have git, this alternative supports in-place upgrades:
+
+```bash
+pipx install git+https://github.com/KevinK24/GMUCourseSearchUtility.git
+pipx upgrade gmu-courses     # pull the latest later
+```
+
+Either way, `pipx uninstall gmu-courses` removes it cleanly.
+
+### Alternative — pip into a virtual environment
 
 ```bash
 python -m venv ~/.venvs/gmu
 # Windows PowerShell:  ~\.venvs\gmu\Scripts\Activate.ps1
 # macOS / Linux:       source ~/.venvs/gmu/bin/activate
-pip install git+https://github.com/KevinK24/GMUCourseSearchUtility.git
+pip install https://github.com/KevinK24/GMUCourseSearchUtility/archive/refs/heads/main.zip
 ```
 
 You'll need to activate that environment each time, or call the script by its
 full path (`~/.venvs/gmu/bin/gmu`, or `...\Scripts\gmu.exe` on Windows).
 
-### Option 3 — clone for development
+### For development
 
-Use this if you want to modify the code. `-e` (editable) means your edits take
-effect immediately with no reinstall.
+`-e` (editable) means your edits take effect immediately with no reinstall.
 
 ```bash
 git clone https://github.com/KevinK24/GMUCourseSearchUtility.git
@@ -323,7 +332,7 @@ The package installed but its scripts directory isn't on your PATH.
 **`error: externally-managed-environment`**
 
 Your Python (Debian/Ubuntu, or Homebrew) refuses global pip installs. Use
-[pipx](#option-1--pipx-recommended) or a [venv](#option-2--pip-into-a-virtual-environment).
+[pipx](#recommended--pipx) or a [venv](#alternative--pip-into-a-virtual-environment).
 
 **`CERTIFICATE_VERIFY_FAILED`**
 
@@ -400,10 +409,62 @@ Tests run offline against captured fixtures — no network needed, so they're
 fast and deterministic. CI runs the suite on Python 3.11, 3.12, and 3.13 on
 every push and pull request.
 
+A second set of tests checks the live Banner API and is **deselected by
+default**, so `pytest` stays offline. Run them deliberately when you suspect
+GMU changed something:
+
+```bash
+pytest -m live -v
+```
+
+These are what the weekly [live-api-check](.github/workflows/live-api-check.yml)
+workflow runs. A failure means either Banner drifted or GMU's servers were
+briefly down — re-run before assuming the former.
+
 Contributions welcome. Some things deliberately left undone, if you want a
 starting point: Mason Core / section-attribute filtering (Banner already
 returns `sectionAttributes`, the code just ignores it), seat-watch diffing
 between snapshots, and shell tab-completion.
+
+## Project status
+
+This is a personal tool, shared because it may be useful to other GMU
+students. It works and it's tested, but it comes with no support promise —
+please read that as honesty rather than discouragement.
+
+**It depends on an API nobody documents.** Banner's JSON endpoints are an
+internal detail of GMU's registration site, not a published interface. GMU can
+change them at any time and owes no notice.
+
+Two things make that less painful than it sounds:
+
+- **A scheduled GitHub Action re-checks the live API every week**
+  ([`live-api-check.yml`](.github/workflows/live-api-check.yml)). If the
+  contract drifts, the job fails and the maintainer gets an email — nobody has
+  to keep an eye on Ellucian's release notes.
+- **When something does break, the tool says so plainly.** You get an
+  explanation naming what changed and a link to open an issue, not a stack
+  trace:
+
+  ```
+  Error: Banner returned non-JSON for /ssb/classSearch/getTerms.
+
+  This usually means GMU changed something about Banner and gmu-courses
+  hasn't caught up yet.
+  It is not something you did wrong, and no setting on your end will fix it.
+  Please check for a newer version, or report it here:
+    https://github.com/KevinK24/GMUCourseSearchUtility/issues
+  ```
+
+**Why not PyPI?** Publishing there implies a release cadence and version
+discipline this project isn't promising. A stale package on an index is worse
+for you than a repo — you'd install a broken version with no signal, whereas
+here you can see the last commit and any open issues before you install.
+Installing from this repo is one command regardless, so the only thing PyPI
+would add is the implication of support.
+
+Issues and pull requests are welcome, and fixing Banner drift is usually a
+small change confined to `banner.py` and `models.py`.
 
 ## What this doesn't do
 

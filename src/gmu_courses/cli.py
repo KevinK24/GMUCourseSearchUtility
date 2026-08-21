@@ -21,6 +21,14 @@ from .models import Section
 from .render import console, render_section_detail, render_sections, render_terms
 
 
+_NETWORK_HINT = (
+    "Couldn't reach Banner at ssbstureg.gmu.edu.\n"
+    "Check your internet connection; if you're on a restricted network, try "
+    "again off it.\n"
+    "(underlying error: {err})"
+)
+
+
 def _make_output_encoding_safe() -> None:
     """Degrade unencodable characters instead of crashing on a legacy console.
 
@@ -184,7 +192,7 @@ def search_cmd(
     except BannerError as e:
         raise click.ClickException(str(e)) from e
     except httpx.HTTPError as e:
-        raise click.ClickException(f"Network error talking to Banner: {e}") from e
+        raise click.ClickException(_NETWORK_HINT.format(err=e)) from e
 
     sections = F.apply_filters(fetched, predicates) if predicates else fetched
 

@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import time
 from typing import Any
 
+from .errors import BannerAPIChanged
+
 
 _DAY_KEYS = (
     ("monday", "M"),
@@ -103,6 +105,24 @@ class Section:
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Section:
+        """Build a Section from one Banner search-result record.
+
+        Wraps shape problems in BannerAPIChanged so a Banner update surfaces as
+        an explanation rather than a raw KeyError traceback.
+        """
+        try:
+            return cls._from_json(d)
+        except BannerAPIChanged:
+            raise
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            crn = d.get("courseReferenceNumber", "?") if isinstance(d, dict) else "?"
+            raise BannerAPIChanged(
+                f"Couldn't read a section (CRN {crn}) from Banner's response: "
+                f"{type(e).__name__}: {e}"
+            ) from e
+
+    @classmethod
+    def _from_json(cls, d: dict[str, Any]) -> Section:
         meetings = tuple(
             MeetingTime.from_json(mf["meetingTime"])
             for mf in (d.get("meetingsFaculty") or [])

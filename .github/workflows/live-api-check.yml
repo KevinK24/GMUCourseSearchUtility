@@ -1,0 +1,38 @@
+name: live API check
+
+# Watches GMU's Banner API for changes so nobody has to do it by hand.
+# If Ellucian ships an update that breaks the contract this tool depends on,
+# this job fails and GitHub emails the repository owner.
+on:
+  schedule:
+    # Mondays at 12:00 UTC. Two short requests a week — negligible load.
+    - cron: "0 12 * * 1"
+  workflow_dispatch: # lets you run it on demand from the Actions tab
+
+# Scheduled workflows are disabled automatically after 60 days without repo
+# activity. If this stops running, push any commit or re-enable it in Actions.
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Check the Banner contract still holds
+        run: pytest -m live -v
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::warning::The live Banner contract check failed."
+          echo "Either GMU changed Banner (gmu-courses needs updating), or their"
+          echo "servers were briefly unavailable. Re-run this job before assuming"
+          echo "the worst - a transient outage looks the same as a real break."
