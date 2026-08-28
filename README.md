@@ -175,7 +175,7 @@ Every command accepts `-h` / `--help`.
 |---|---|
 | `-t`, `--term <code>` | Term code (default: next registerable term, e.g. `202670` = Fall 2026) |
 | `-s`, `--subject <SUBJ>` | Subject code — `CS`, `ISA`, `MATH`, `ENGH`, … |
-| `-c`, `--course <NUMBER>` | Course number — `211`, `699`, … |
+| `-c`, `--course <NUMBERS>` | One course number (`211`) or a comma-separated list (`530,542,618`). A list needs `--subject` or `--keyword` too |
 | `-k`, `--keyword <text>` | Title keyword (matched server-side by Banner) |
 | `--days <DAYS>` | Keep sections meeting *only* on these days. Codes: `M T W R F S U` — **R = Thursday**, `U` = Sunday |
 | `--after HH:MM` | Every meeting must start at or after this time |
@@ -191,6 +191,9 @@ Every command accepts `-h` / `--help`.
 ```bash
 # Graduate CS, in person, seats left, nothing clashing with my schedule
 gmu search -s CS --min-level 500 --modality in-person --open --no-conflicts
+
+# Just these three AIT courses, rather than scrolling the whole subject
+gmu search -s AIT -c 530,542,618
 
 # Anything about machine learning, Tue/Thu only, afternoons
 gmu search -k "machine learning" --days TR --after 12:00
@@ -227,10 +230,25 @@ Use `--no-conflicts` to hide clashes entirely rather than tint them.
   Quit
 ```
 
-Search walks you through subject → course → keyword, then a checkbox of
-filter presets (open seats, hide conflicts, in-person/online, and level
+Search walks you through subject → course number(s) → keyword, then a checkbox
+of filter presets (open seats, hide conflicts, in-person/online, and level
 presets for 300+, 500+, and 650+). Results render as the same colored table,
 and you can add CRNs to your schedule right from them.
+
+The course-number prompt takes a **comma-separated list**, so if you're
+checking a handful of specific courses you don't have to page through the
+whole subject:
+
+```
+? Subject code (e.g. CS, ISA, MATH) — blank to skip: AIT
+? Course number(s) — one, or a comma-separated list (e.g. 530, 542, 618) — blank for all: 542, 580, 681
+
+No sections matched: 681 (not offered this term, or removed by your filters)
+  3 section(s) — subject=AIT, course=542,580,681  (3/26 after filters) — Fall 2026
+```
+
+Numbers you ask for that turn up nothing are called out by name — otherwise
+"not offered this term" and "I typo'd it" look identical.
 
 ### Desktop launcher (Windows)
 

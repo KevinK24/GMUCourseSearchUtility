@@ -147,20 +147,48 @@ def _prompt_search_params(questionary) -> dict | None:
         subject = _blank_to_none(
             questionary.text("Subject code (e.g. CS, ISA, MATH) — blank to skip:").ask()
         )
-        course = _blank_to_none(
-            questionary.text("Course number (e.g. 211) — blank to skip:").ask()
-        )
+
+        course_numbers: list[str] = []
+        while True:
+            raw = questionary.text(
+                "Course number(s) — one, or a comma-separated list "
+                "(e.g. 530, 542, 618) — blank for all:"
+            ).ask()
+            if raw is None:
+                return None
+            try:
+                course_numbers = F.parse_course_numbers(raw)
+                break
+            except ValueError as e:
+                console.print(f"[yellow]{e}[/yellow]")
+
         keyword = _blank_to_none(
             questionary.text("Title keyword (e.g. security) — blank to skip:").ask()
         )
-        if any((subject, course, keyword)):
-            break
-        retry = questionary.confirm(
-            "You need at least one of subject / course / keyword. Try again?",
-            default=True,
-        ).ask()
-        if not retry:
-            return None
+
+        if not any((subject, course_numbers, keyword)):
+            retry = questionary.confirm(
+                "You need at least one of subject / course number / keyword. Try again?",
+                default=True,
+            ).ask()
+            if not retry:
+                return None
+            continue
+
+        # A list of numbers is filtered client-side, so the fetch itself still
+        # needs something to bound it.
+        if len(course_numbers) > 1 and not (subject or keyword):
+            console.print(
+                "[yellow]Searching several course numbers needs a subject (or a "
+                "keyword) to narrow the fetch — otherwise it would pull every "
+                "section in the term.[/yellow]"
+            )
+            retry = questionary.confirm("Try again?", default=True).ask()
+            if not retry:
+                return None
+            continue
+
+        break
 
     flags = questionary.checkbox(
         "Filters (space to toggle, enter to continue — none is fine):",
@@ -195,7 +223,7 @@ def _prompt_search_params(questionary) -> dict | None:
 
     return {
         "subject": subject,
-        "course_number": course,
+        "course_numbers": course_numbers,
         "keyword": keyword,
         "flags": flags,
         "days_spec": days_spec,
@@ -228,6 +256,11 @@ def _build_predicates(params: dict, my_sections: list[Section]) -> tuple[list, l
     flags = params["flags"]
     predicates: list[F.SectionFilter] = []
     warnings: list[str] = []
+
+    # One number is handed to Banner directly; several are filtered here, since
+    # its search takes a single course number.
+    if len(params.get("course_numbers") or []) > 1:
+        predicates.append(F.course_number_in(params["course_numbers"]))
 
     for key, factory, label in (
         ("days_spec", lambda v: F.days_subset(F.parse_days(v)), "days"),
@@ -268,8 +301,8 @@ def _describe(params: dict, kept: int, total: int, source: str) -> str:
     parts = []
     if params["subject"]:
         parts.append(f"subject={params['subject'].upper()}")
-    if params["course_number"]:
-        parts.append(f"course={params['course_number']}")
+    if params.get("course_numbers"):
+        parts.append("course=" + ",".join(params["course_numbers"]))
     if params["keyword"]:
         parts.append(f"keyword={params['keyword']!r}")
     for key, label in (("days_spec", "days"), ("after_spec", "after"), ("before_spec", "before")):
@@ -300,13 +333,18 @@ def _do_search(questionary, client: BannerClient, term: Term) -> None:
     for w in warnings:
         console.print(f"[yellow]{w}[/yellow]")
 
+    # Banner accepts a single course number; a list is narrowed client-side, so
+    # the fetch stays subject-wide (and reuses that cache entry).
+    numbers = params.get("course_numbers") or []
+    server_course = numbers[0] if len(numbers) == 1 else None
+
     try:
         with console.status(f"Querying {term.description}…", spinner="dots"):
             fetched, source = S.fetch_sections(
                 client,
                 term.code,
                 subject=params["subject"],
-                course_number=params["course_number"],
+                course_number=server_course,
                 keyword=params["keyword"],
             )
     except BannerError as e:
@@ -320,6 +358,15 @@ def _do_search(questionary, client: BannerClient, term: Term) -> None:
         return
 
     sections = F.apply_filters(fetched, predicates) if predicates else fetched
+
+    if len(numbers) > 1:
+        absent = F.unmatched_course_numbers(sections, numbers)
+        if absent:
+            console.print(
+                f"[yellow]No sections matched: {', '.join(absent)}[/yellow] "
+                "[dim](not offered this term, or removed by your filters)[/dim]"
+            )
+
     taken = hist.read_courses()
     render_sections(
         sections,

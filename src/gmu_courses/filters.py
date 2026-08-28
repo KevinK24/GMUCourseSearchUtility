@@ -80,6 +80,61 @@ def course_number_value(course_number: str) -> int | None:
     return int(digits) if digits else None
 
 
+def parse_course_numbers(spec: str) -> list[str]:
+    """`"530, 542,618"` → `['530', '542', '618']`. Raises ValueError on junk.
+
+    Order is preserved and duplicates dropped, so the echoed query reads back
+    the way the user typed it.
+    """
+    out: list[str] = []
+    for chunk in spec.split(","):
+        chunk = chunk.strip().upper()
+        if not chunk:
+            continue
+        if not any(c.isdigit() for c in chunk):
+            raise ValueError(
+                f"{chunk!r} doesn't look like a course number. Use digits, "
+                "optionally with a suffix (e.g. 530 or 530L), separated by commas."
+            )
+        if chunk not in out:
+            out.append(chunk)
+    return out
+
+
+def course_number_in(numbers: Iterable[str]) -> SectionFilter:
+    """Keep sections whose course number is any of `numbers`.
+
+    A purely numeric entry also matches suffixed variants — asking for 530
+    finds 530 and 530L. An entry that already carries a suffix matches exactly,
+    so asking for 530L does not drag in plain 530.
+    """
+    wanted = {n.strip().upper() for n in numbers if n.strip()}
+    wanted_values = {
+        course_number_value(n) for n in wanted if n.isdigit()
+    }
+    wanted_values.discard(None)
+
+    def predicate(s: Section) -> bool:
+        actual = s.course_number.upper()
+        if actual in wanted:
+            return True
+        return course_number_value(actual) in wanted_values
+
+    return predicate
+
+
+def unmatched_course_numbers(
+    sections: Iterable[Section], requested: Iterable[str]
+) -> list[str]:
+    """Requested course numbers that nothing in `sections` matched.
+
+    Usually means the course isn't offered this term (or was a typo) — worth
+    saying out loud, since silence looks identical to "not offered".
+    """
+    sections = list(sections)
+    return [n for n in requested if not any(course_number_in([n])(s) for s in sections)]
+
+
 def min_level(level: int) -> SectionFilter:
     """Course number ≥ level. e.g. min_level(300) keeps 300-/400-/500-/… level courses."""
     def predicate(s: Section) -> bool:

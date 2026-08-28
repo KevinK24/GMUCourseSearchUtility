@@ -120,6 +120,76 @@ def test_course_number_value():
     assert F.course_number_value("") is None
 
 
+def test_parse_course_numbers_splits_and_normalizes():
+    assert F.parse_course_numbers("530, 542,618") == ["530", "542", "618"]
+    assert F.parse_course_numbers("  211  ") == ["211"]
+    assert F.parse_course_numbers("530l") == ["530L"]
+    assert F.parse_course_numbers("") == []
+    assert F.parse_course_numbers(" , , ") == []
+
+
+def test_parse_course_numbers_drops_duplicates_keeping_order():
+    assert F.parse_course_numbers("542, 530, 542") == ["542", "530"]
+
+
+def test_parse_course_numbers_rejects_entries_without_digits():
+    with pytest.raises(ValueError) as e:
+        F.parse_course_numbers("530, banana")
+    assert "BANANA" in str(e.value)
+
+
+def test_course_number_in_matches_listed_numbers():
+    f = F.course_number_in(["530", "618"])
+    s530 = make_section(); object.__setattr__(s530, "course_number", "530")
+    s618 = make_section(); object.__setattr__(s618, "course_number", "618")
+    s531 = make_section(); object.__setattr__(s531, "course_number", "531")
+    assert f(s530) and f(s618)
+    assert not f(s531)
+
+
+def test_course_number_in_plain_number_also_matches_suffixed_variant():
+    """Asking for 530 should still surface its lab section 530L."""
+    f = F.course_number_in(["530"])
+    lab = make_section(); object.__setattr__(lab, "course_number", "530L")
+    assert f(lab)
+
+
+def test_course_number_in_suffixed_entry_does_not_drag_in_the_plain_one():
+    f = F.course_number_in(["530L"])
+    plain = make_section(); object.__setattr__(plain, "course_number", "530")
+    lab = make_section(); object.__setattr__(lab, "course_number", "530L")
+    assert f(lab)
+    assert not f(plain)
+
+
+def test_course_number_in_does_not_match_on_prefix():
+    """530 must not match 5301 — these are different courses."""
+    f = F.course_number_in(["530"])
+    other = make_section(); object.__setattr__(other, "course_number", "5301")
+    assert not f(other)
+
+
+def test_unmatched_course_numbers_reports_the_missing_ones():
+    s530 = make_section(); object.__setattr__(s530, "course_number", "530")
+    s542 = make_section(); object.__setattr__(s542, "course_number", "542")
+    absent = F.unmatched_course_numbers([s530, s542], ["530", "542", "681"])
+    assert absent == ["681"]
+
+
+def test_unmatched_course_numbers_empty_when_all_present():
+    s530 = make_section(); object.__setattr__(s530, "course_number", "530")
+    assert F.unmatched_course_numbers([s530], ["530"]) == []
+
+
+def test_unmatched_course_numbers_counts_suffixed_match_as_found():
+    lab = make_section(); object.__setattr__(lab, "course_number", "530L")
+    assert F.unmatched_course_numbers([lab], ["530"]) == []
+
+
+def test_unmatched_course_numbers_with_no_results_reports_all():
+    assert F.unmatched_course_numbers([], ["530", "542"]) == ["530", "542"]
+
+
 def test_min_level():
     f = F.min_level(300)
     s100 = make_section(); object.__setattr__(s100, "course_number", "100")

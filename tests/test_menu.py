@@ -32,7 +32,7 @@ def _section(crn="00001", course="211", days="MW", begin=(10, 0), end=(11, 15),
 
 def _params(**overrides):
     base = {
-        "subject": "CS", "course_number": None, "keyword": None,
+        "subject": "CS", "course_numbers": [], "keyword": None,
         "flags": set(), "days_spec": None, "after_spec": None, "before_spec": None,
     }
     base.update(overrides)
@@ -173,6 +173,33 @@ def test_section_label_handles_async():
     label = menu._section_label(async_sec)
     assert "async" in label
     assert "TBA" in label
+
+
+def test_single_course_number_adds_no_predicate():
+    """One number goes to Banner directly, so nothing is filtered client-side."""
+    preds, warns = menu._build_predicates(_params(course_numbers=["211"]), [])
+    assert preds == []
+    assert warns == []
+
+
+def test_multiple_course_numbers_filter_client_side():
+    preds, warns = menu._build_predicates(
+        _params(course_numbers=["530", "542", "618"]), []
+    )
+    assert len(preds) == 1
+    assert not warns
+    assert preds[0](_section(course="530"))
+    assert preds[0](_section(course="618"))
+    assert not preds[0](_section(course="531"))
+    assert not preds[0](_section(course="600"))
+
+
+def test_describe_lists_every_requested_course_number():
+    desc = menu._describe(
+        _params(course_numbers=["530", "542"]), kept=4, total=60, source="cached"
+    )
+    assert "course=530,542" in desc
+    assert "4/60 after filters" in desc
 
 
 def test_describe_uses_readable_level_labels():

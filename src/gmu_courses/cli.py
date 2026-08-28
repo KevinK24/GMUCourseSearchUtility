@@ -57,6 +57,7 @@ Examples:
   gmu terms                                       List semesters and their codes
   gmu search -s CS                                All Computer Science sections (default term)
   gmu search -s CS -c 211                         CS 211 sections only
+  gmu search -s AIT -c 530,542,618                Just those three AIT courses
   gmu search -k "machine learning"                Title keyword search
   gmu search -s MATH --days MWF --after 10:00     Math sections meeting only MWF after 10am
   gmu search -s CS --modality online --open       Online CS sections with open seats
@@ -100,7 +101,7 @@ def terms_cmd() -> None:
 @main.command("search")
 @click.option("--term", "-t", "term_code", help="Term code, e.g. 202670. Default: next registerable term.")
 @click.option("--subject", "-s", help="Subject code, e.g. CS, MATH, ENGH.")
-@click.option("--course", "-c", "course_number", help="Course number, e.g. 211.")
+@click.option("--course", "-c", "course_number", help="Course number, or a comma-separated list: 211 or '530,542,618'. A list needs --subject or --keyword too.")
 @click.option("--keyword", "-k", help="Title keyword search.")
 @click.option("--days", "days_spec", help="Restrict to sections meeting only on these days. e.g. MWF or TR (R=Thu).")
 @click.option("--after", "after_spec", help="Every meeting must begin at or after this time. HH:MM.")
@@ -139,7 +140,23 @@ def search_cmd(
     if not any((subject, course_number, keyword)):
         raise click.UsageError("Pass at least one of --subject, --course, or --keyword.")
 
+    try:
+        course_numbers = F.parse_course_numbers(course_number) if course_number else []
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
+
+    # Banner's search takes one course number. A list is filtered client-side,
+    # so the fetch still needs a subject or keyword to bound it.
+    if len(course_numbers) > 1 and not (subject or keyword):
+        raise click.UsageError(
+            "Searching several course numbers needs --subject or --keyword as well, "
+            "otherwise every section in the term would have to be fetched."
+        )
+    server_course = course_numbers[0] if len(course_numbers) == 1 else None
+
     predicates: list[F.SectionFilter] = []
+    if len(course_numbers) > 1:
+        predicates.append(F.course_number_in(course_numbers))
     try:
         if days_spec:
             predicates.append(F.days_subset(F.parse_days(days_spec)))
@@ -185,7 +202,7 @@ def search_cmd(
                     bc,
                     term.code,
                     subject=subject,
-                    course_number=course_number,
+                    course_number=server_course,
                     keyword=keyword,
                     fresh=fresh,
                 )
@@ -199,8 +216,8 @@ def search_cmd(
     parts = []
     if subject:
         parts.append(f"subject={subject.upper()}")
-    if course_number:
-        parts.append(f"course={course_number}")
+    if course_numbers:
+        parts.append("course=" + ",".join(course_numbers))
     if keyword:
         parts.append(f"keyword={keyword!r}")
     if days_spec:
@@ -223,6 +240,14 @@ def search_cmd(
     if predicates:
         query_desc += f"  ({len(sections)}/{len(fetched)} after filters)"
     query_desc += f"  [{source}]"
+    if len(course_numbers) > 1:
+        absent = F.unmatched_course_numbers(sections, course_numbers)
+        if absent:
+            click.echo(
+                f"(no sections matched: {', '.join(absent)} — "
+                "not offered this term, or filtered out above)",
+                err=True,
+            )
     taken = hist.read_courses()
     render_sections(
         sections,
