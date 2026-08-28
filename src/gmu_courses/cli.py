@@ -68,7 +68,8 @@ Examples:
   gmu search -s CS -c 211 --pick                  Interactive picker — space toggles, enter adds to schedule
   gmu show 77863                                  Details for a CRN you've seen in a search
   gmu schedule edit                               Open your schedule file in your editor
-  gmu schedule add 77863                          Append a CRN to your schedule
+  gmu schedule add 77863,77866                    Append CRN(s) to your schedule
+  gmu schedule remove 77863                       Take CRN(s) back out
   gmu schedule show                               Print what's currently in your schedule
   gmu schedule export -o fall26.ics               Export your schedule as a .ics calendar file
   gmu history add CS 211                          Mark a course as already taken (colors search rows red)
@@ -382,29 +383,39 @@ def schedule_edit() -> None:
 
 
 @schedule_group.command("add")
-@click.argument("crn")
-def schedule_add(crn: str) -> None:
-    """Append a CRN to your schedule."""
-    note = ""
-    hit = cache.find_section_by_crn(crn)
-    if hit is not None:
-        sec = Section.from_json(hit[0])
-        note = f"{sec.subject_course} sec {sec.section_number or '?'}"
-    added = sched.add_crn(crn, note=note)
+@click.argument("crns")
+def schedule_add(crns: str) -> None:
+    """Append CRN(s) to your schedule. One, or a comma-separated list."""
+    added, duplicates, bad = menu_mod.add_crns_to_schedule(crns)
     if added:
-        click.echo(f"Added CRN {crn}" + (f"  ({note})" if note else "") + ".")
-    else:
-        click.echo(f"CRN {crn} is already in your schedule.")
+        click.echo(f"Added {len(added)}: {', '.join(added)}")
+    if duplicates:
+        click.echo(f"Already in your schedule: {', '.join(duplicates)}")
+    if bad:
+        raise click.UsageError(
+            f"Not a CRN: {', '.join(repr(b) for b in bad)}. CRNs are numeric, e.g. 77863."
+        )
+    if not (added or duplicates):
+        click.echo("Nothing to add.")
 
 
 @schedule_group.command("remove")
-@click.argument("crn")
-def schedule_remove(crn: str) -> None:
-    """Remove a CRN from your schedule (line is commented out, not deleted)."""
-    if sched.remove_crn(crn):
-        click.echo(f"Removed CRN {crn} from your schedule.")
-    else:
-        click.echo(f"CRN {crn} was not in your schedule.")
+@click.argument("crns")
+def schedule_remove(crns: str) -> None:
+    """Remove CRN(s) from your schedule. One, or a comma-separated list.
+
+    Lines are commented out rather than deleted, so a mistake is recoverable
+    by editing the file.
+    """
+    removed, missing = menu_mod.remove_crns_from_schedule(
+        menu_mod.split_crn_specs(crns)
+    )
+    if removed:
+        click.echo(f"Removed {len(removed)}: {', '.join(removed)}")
+    if missing:
+        click.echo(f"Not in your schedule: {', '.join(missing)}")
+    if not (removed or missing):
+        click.echo("Nothing to remove.")
 
 
 @schedule_group.command("show")

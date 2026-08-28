@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Iterable
 
 import click
 import httpx
 from rich.panel import Panel
 
+from . import cache
 from . import filters as F
 from . import history as hist
 from . import ical
@@ -417,6 +419,142 @@ def _do_show_history() -> None:
     )
 
 
+def split_crn_specs(raw: str) -> list[str]:
+    """Split a comma-separated CRN list into individual entries."""
+    return [chunk.strip() for chunk in raw.split(",") if chunk.strip()]
+
+
+def add_crns_to_schedule(raw: str) -> tuple[list[str], list[str], list[str]]:
+    """Add every CRN in a comma-separated string.
+
+    Annotates each line with the course and section when that CRN is already
+    in the cache, so the file stays readable. Returns
+    (added, already_present, unparseable).
+    """
+    added: list[str] = []
+    duplicates: list[str] = []
+    bad: list[str] = []
+    for crn in split_crn_specs(raw):
+        if not crn.isdigit():
+            bad.append(crn)
+            continue
+        note = ""
+        hit = cache.find_section_by_crn(crn)
+        if hit is not None:
+            section = Section.from_json(hit[0])
+            note = f"{section.subject_course} sec {section.section_number or '?'}"
+        if sched.add_crn(crn, note=note):
+            added.append(crn)
+        else:
+            duplicates.append(crn)
+    return added, duplicates, bad
+
+
+def _do_add_schedule(questionary) -> None:
+    raw = questionary.text(
+        "CRN(s) to add — comma-separated (e.g. 77863, 77866):"
+    ).ask()
+    if not raw or not raw.strip():
+        console.print("[dim](nothing added)[/dim]")
+        return
+
+    added, duplicates, bad = add_crns_to_schedule(raw)
+
+    if added:
+        console.print(f"[green]Added {len(added)}:[/green] {', '.join(added)}")
+    if duplicates:
+        console.print(
+            f"[yellow]Already in your schedule ({len(duplicates)}):[/yellow] "
+            f"{', '.join(duplicates)}"
+        )
+    if bad:
+        console.print(
+            f"[red]Not a CRN ({len(bad)}):[/red] {', '.join(repr(b) for b in bad)}\n"
+            "[dim]CRNs are numeric, e.g. 77863.[/dim]"
+        )
+    if not (added or duplicates or bad):
+        console.print("[dim](nothing added)[/dim]")
+
+
+def remove_crns_from_schedule(crns: Iterable[str]) -> tuple[list[str], list[str]]:
+    """Remove each CRN. Returns (removed, not_found).
+
+    Removal comments the line out rather than deleting it, so a mistake is
+    recoverable by editing the file.
+    """
+    removed: list[str] = []
+    missing: list[str] = []
+    for crn in crns:
+        (removed if sched.remove_crn(crn) else missing).append(crn)
+    return removed, missing
+
+
+def _do_remove_schedule(questionary) -> None:
+    entries = sched.read_entries()
+    if not entries:
+        console.print("[yellow]Schedule is empty — nothing to remove.[/yellow]")
+        return
+
+    resolved, _missing = sched.resolve(entries)
+    by_crn = {s.crn: s for s in resolved}
+
+    choices = []
+    for entry in entries:
+        section = by_crn.get(entry.crn)
+        if section is not None:
+            title = _section_label(section)
+        else:
+            # Not cached, so we can't describe it — fall back to the user's own
+            # note, which is usually what they wrote when they added it.
+            suffix = f" — {entry.note}" if entry.note else ""
+            title = f"{entry.crn}  (not cached{suffix})"
+        choices.append(questionary.Choice(title=title, value=entry.crn))
+
+    picked = questionary.checkbox(
+        "Select CRN(s) to remove (space=toggle, enter=confirm):",
+        choices=choices,
+    ).ask()
+    if not picked:
+        console.print("[dim](nothing removed)[/dim]")
+        return
+
+    removed, _missing = remove_crns_from_schedule(picked)
+    if removed:
+        console.print(f"[green]Removed {len(removed)}:[/green] {', '.join(removed)}")
+        console.print(
+            "[dim]Lines are commented out rather than deleted, so you can undo "
+            f"this by editing {sched.SCHEDULE_FILE.name}.[/dim]"
+        )
+    else:
+        console.print("[yellow](nothing matched)[/yellow]")
+
+
+def _do_schedule_menu(questionary) -> None:
+    """Submenu for viewing and editing the CRNs you're taking."""
+    while True:
+        _do_show_schedule()
+        action = questionary.select(
+            "My schedule:",
+            choices=[
+                questionary.Choice("Add CRN(s)", value="add"),
+                questionary.Choice("Remove CRN(s)", value="remove"),
+                questionary.Choice("Open the file in my editor", value="edit"),
+                questionary.Choice("Back to main menu", value="back"),
+            ],
+        ).ask()
+        if action is None or action == "back":
+            return
+        if action == "add":
+            _do_add_schedule(questionary)
+        elif action == "remove":
+            _do_remove_schedule(questionary)
+        elif action == "edit":
+            path = sched.ensure_file()
+            console.print(f"[dim]Opening {path}…[/dim]")
+            click.launch(str(path))
+        console.print()
+
+
 def split_course_specs(raw: str) -> list[str]:
     """Split a comma-separated course list into individual specs.
 
@@ -577,7 +715,9 @@ def run_menu() -> None:
                     "What would you like to do?",
                     choices=[
                         questionary.Choice("Search for courses", value="search"),
-                        questionary.Choice("View my schedule", value="schedule"),
+                        questionary.Choice(
+                            "My schedule (view / add / remove)", value="schedule"
+                        ),
                         questionary.Choice(
                             "Courses I've taken (view / add / remove)", value="history"
                         ),
@@ -594,7 +734,7 @@ def run_menu() -> None:
                 if action == "search":
                     _do_search(questionary, client, term)
                 elif action == "schedule":
-                    _do_show_schedule()
+                    _do_schedule_menu(questionary)
                 elif action == "history":
                     _do_history_menu(questionary)
                 elif action == "export":

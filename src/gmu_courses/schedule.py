@@ -29,9 +29,16 @@ _INITIAL_CONTENT = """\
 #   77863    # CS 211 sec 001 — MW 13:30-14:45
 #   77866    # CS 211 lab sec 201 — R 11:30-12:20
 #
-# Use `gmu schedule add <CRN>` / `remove <CRN>` from the CLI, or just edit
-# this file in your editor of choice. Then `gmu search ... --no-conflicts`
-# will hide sections whose meetings overlap with anything listed here.
+# Manage this from `gmu menu` (My schedule -> add / remove), or from the CLI:
+#
+#   gmu schedule add 77863,77866
+#   gmu schedule remove 77866
+#
+# ...or just edit this file directly. Removing via the tool comments the line
+# out rather than deleting it, so you can undo it here.
+#
+# Anything listed here also powers `gmu search ... --no-conflicts`, which hides
+# sections whose meetings overlap what you're already taking.
 """
 
 

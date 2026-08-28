@@ -156,8 +156,8 @@ gmu search [filters]                   Search for sections (see filters below)
 gmu show <CRN>                         Full detail for one section (looks in the cache)
 
 gmu schedule show | path | edit        Inspect / edit the CRNs you're taking
-gmu schedule add <CRN>                 Append a CRN
-gmu schedule remove <CRN>              Comment out that line (recoverable)
+gmu schedule add <CRNS>                Append CRN(s) — one, or `77863,77866`
+gmu schedule remove <CRNS>             Remove CRN(s); lines are commented out, not deleted
 gmu schedule export [-o FILE]          Write the schedule as a .ics calendar file
 
 gmu history show | path | edit         Inspect / edit the courses you've taken
@@ -223,11 +223,22 @@ Use `--no-conflicts` to hide clashes entirely rather than tint them.
 ```
 ? What would you like to do?
 ❯ Search for courses
-  View my schedule
+  My schedule (view / add / remove)
   Courses I've taken (view / add / remove)
   Export schedule to calendar (.ics)
   Change term (currently Fall 2026)
   Quit
+```
+
+Both list-managing entries open a submenu where you can add, remove, or open
+the underlying file in your editor. Removal is a checkbox over what's actually
+there — sections show their course, time, and instructor, so you don't have to
+recognize a bare CRN:
+
+```
+? Select CRN(s) to remove (space=toggle, enter=confirm):
+❯ ◯ 77863  CS 211    sec 001  MW    13:30-14:45  Gopalkrishna   19/96  Object-Oriented Programming
+  ◉ 77866  CS 211    sec 201  R     11:30-12:20  Gopalkrishna    2/48  Lab for Lecture 001
 ```
 
 Search walks you through subject → course number(s) → keyword, then a checkbox
