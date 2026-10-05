@@ -199,15 +199,42 @@ def _prompt_search_params(questionary) -> dict | None:
             questionary.Choice("Hide conflicts with my schedule", value="no_conflicts"),
             questionary.Choice("In-person only", value="in-person"),
             questionary.Choice("Online only", value="online"),
-            questionary.Choice("Upper-level only (300+)", value="min300"),
-            questionary.Choice("Graduate only (500+)", value="min500"),
-            questionary.Choice("Doctoral only (650+)", value="min650"),
             questionary.Choice("More filters (days / time window)…", value="advanced"),
         ],
     ).ask()
     if flags is None:
         return None
     flags = set(flags)
+
+    # Course level is a single value, so it gets a single-select. As checkboxes
+    # it was possible to tick two floors and have one silently ignored.
+    min_level = questionary.select(
+        "Course level:",
+        choices=[
+            questionary.Choice("Any level", value=None),
+            questionary.Choice("Upper division and above (300+)", value=300),
+            questionary.Choice("Graduate and above (500+)", value=500),
+            questionary.Choice("Doctoral and above (650+)", value=650),
+            questionary.Choice("Custom minimum…", value="custom"),
+        ],
+    ).ask()
+    if min_level == "custom":
+        while True:
+            raw = questionary.text(
+                "Minimum course number (e.g. 400) — blank for any:"
+            ).ask()
+            if raw is None:
+                return None
+            raw = raw.strip()
+            if not raw:
+                min_level = None
+                break
+            if raw.isdigit():
+                min_level = int(raw)
+                break
+            console.print(
+                f"[yellow]{raw!r} isn't a number. Enter a course number like 400.[/yellow]"
+            )
 
     days_spec = after_spec = before_spec = None
     if "advanced" in flags:
@@ -227,6 +254,7 @@ def _prompt_search_params(questionary) -> dict | None:
         "subject": subject,
         "course_numbers": course_numbers,
         "keyword": keyword,
+        "min_level": min_level,
         "flags": flags,
         "days_spec": days_spec,
         "after_spec": after_spec,
@@ -234,18 +262,12 @@ def _prompt_search_params(questionary) -> dict | None:
     }
 
 
-# Most restrictive first — _build_predicates applies the first match and stops.
-_LEVEL_PRESETS = (("min650", 650), ("min500", 500), ("min300", 300))
-
 # How each filter flag reads in the results header. "advanced" is UI-only.
 _FLAG_LABELS = {
     "open": "open",
     "no_conflicts": "no-conflicts",
     "in-person": "in-person",
     "online": "online",
-    "min300": "level>=300",
-    "min500": "level>=500",
-    "min650": "level>=650",
 }
 
 
@@ -282,11 +304,8 @@ def _build_predicates(params: dict, my_sections: list[Section]) -> tuple[list, l
         predicates.append(F.modality_is("in-person"))
     if "online" in flags:
         predicates.append(F.modality_is("online"))
-    # Level presets are cumulative in intent, so the most restrictive one wins.
-    for flag, level in _LEVEL_PRESETS:
-        if flag in flags:
-            predicates.append(F.min_level(level))
-            break
+    if params.get("min_level") is not None:
+        predicates.append(F.min_level(params["min_level"]))
     if "open" in flags:
         predicates.append(F.open_seats)
     if "no_conflicts" in flags:
@@ -310,6 +329,8 @@ def _describe(params: dict, kept: int, total: int, source: str) -> str:
     for key, label in (("days_spec", "days"), ("after_spec", "after"), ("before_spec", "before")):
         if params[key]:
             parts.append(f"{label}={params[key]}")
+    if params.get("min_level") is not None:
+        parts.append(f"level>={params['min_level']}")
     for flag in sorted(params["flags"] - {"advanced"}):
         parts.append(_FLAG_LABELS.get(flag, flag))
     desc = ", ".join(parts) or "all sections"

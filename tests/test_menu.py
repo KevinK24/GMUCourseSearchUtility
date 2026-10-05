@@ -32,7 +32,7 @@ def _section(crn="00001", course="211", days="MW", begin=(10, 0), end=(11, 15),
 
 def _params(**overrides):
     base = {
-        "subject": "CS", "course_numbers": [], "keyword": None,
+        "subject": "CS", "course_numbers": [], "keyword": None, "min_level": None,
         "flags": set(), "days_spec": None, "after_spec": None, "before_spec": None,
     }
     base.update(overrides)
@@ -62,33 +62,33 @@ def test_flags_map_to_predicates():
     assert not all(p(drop) for p in preds)
 
 
-def test_graduate_flag_overrides_upper_level():
-    """min500 and min300 are mutually exclusive — grad wins, only one predicate."""
-    preds, _ = menu._build_predicates(_params(flags={"min300", "min500"}), [])
-    assert len(preds) == 1
-    assert preds[0](_section(course="600"))
-    assert not preds[0](_section(course="400"))
-
-
-def test_doctoral_flag_wins_over_all_lower_presets():
-    preds, _ = menu._build_predicates(
-        _params(flags={"min300", "min500", "min650"}), []
-    )
-    assert len(preds) == 1
-    assert preds[0](_section(course="650"))
-    assert preds[0](_section(course="799"))
-    assert not preds[0](_section(course="600"))
-    assert not preds[0](_section(course="500"))
+def test_no_level_selected_adds_no_predicate():
+    preds, warns = menu._build_predicates(_params(min_level=None), [])
+    assert preds == [] and warns == []
 
 
 @pytest.mark.parametrize(
-    "flag,boundary,below",
-    [("min300", "300", "299"), ("min500", "500", "499"), ("min650", "650", "649")],
+    "level,boundary,below",
+    [(300, "300", "299"), (500, "500", "499"), (650, "650", "649"), (400, "400", "399")],
 )
-def test_level_presets_are_inclusive_at_the_boundary(flag, boundary, below):
-    preds, _ = menu._build_predicates(_params(flags={flag}), [])
+def test_min_level_is_inclusive_at_the_boundary(level, boundary, below):
+    """Includes 400, which no preset offered — custom values must work too."""
+    preds, _ = menu._build_predicates(_params(min_level=level), [])
+    assert len(preds) == 1
     assert preds[0](_section(course=boundary))
     assert not preds[0](_section(course=below))
+
+
+def test_min_level_is_a_single_value_so_it_cannot_be_double_selected():
+    """The old checkbox let two floors be ticked and silently dropped one.
+
+    A single integer makes that unrepresentable rather than merely discouraged.
+    """
+    params = _params(min_level=300)
+    preds, _ = menu._build_predicates(params, [])
+    assert len(preds) == 1
+    assert preds[0](_section(course="300"))
+    assert preds[0](_section(course="700")), "300+ must still include higher levels"
 
 
 def test_bad_day_spec_warns_instead_of_crashing():
@@ -202,10 +202,19 @@ def test_describe_lists_every_requested_course_number():
     assert "4/60 after filters" in desc
 
 
-def test_describe_uses_readable_level_labels():
-    desc = menu._describe(_params(flags={"min650"}), kept=3, total=9, source="live")
+def test_describe_shows_the_selected_level():
+    desc = menu._describe(_params(min_level=650), kept=3, total=9, source="live")
     assert "level>=650" in desc
-    assert "min650" not in desc
+
+
+def test_describe_shows_a_custom_level():
+    desc = menu._describe(_params(min_level=425), kept=3, total=9, source="live")
+    assert "level>=425" in desc
+
+
+def test_describe_omits_level_when_none_selected():
+    desc = menu._describe(_params(min_level=None), kept=9, total=9, source="live")
+    assert "level>=" not in desc
 
 
 # --------------------------------------------------------------------------

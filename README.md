@@ -242,9 +242,22 @@ recognize a bare CRN:
 ```
 
 Search walks you through subject → course number(s) → keyword, then a checkbox
-of filter presets (open seats, hide conflicts, in-person/online, and level
-presets for 300+, 500+, and 650+). Results render as the same colored table,
-and you can add CRNs to your schedule right from them.
+of filters (open seats, hide conflicts, in-person/online), then a course-level
+picker. Results render as the same colored table, and you can add CRNs to your
+schedule right from them.
+
+Level is a single-select rather than a checkbox, since a minimum can only have
+one value — with shortcuts for upper division (300+), graduate (500+) and
+doctoral (650+), plus **Custom minimum…** for anything else:
+
+```
+? Course level:
+  Any level
+  Upper division and above (300+)
+  Graduate and above (500+)
+❯ Doctoral and above (650+)
+  Custom minimum…
+```
 
 The course-number prompt takes a **comma-separated list**, so if you're
 checking a handful of specific courses you don't have to page through the
