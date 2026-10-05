@@ -18,7 +18,13 @@ from . import menu as menu_mod
 from . import schedule as sched
 from . import search as S
 from .models import Section
-from .render import console, render_section_detail, render_sections, render_terms
+from .render import (
+    console,
+    render_schedule,
+    render_section_detail,
+    render_sections,
+    render_terms,
+)
 
 
 _NETWORK_HINT = (
@@ -186,18 +192,29 @@ def search_cmd(
             f"{', '.join(missing)}. Run `gmu search` covering each subject first.)",
             err=True,
         )
-    if no_conflicts:
-        if not entries:
-            click.echo(
-                f"(no CRNs in {sched.SCHEDULE_FILE} — --no-conflicts has nothing to compare against)",
-                err=True,
-            )
-        elif my_sections:
-            predicates.append(F.no_conflicts(my_sections))
 
     try:
         with BannerClient() as bc:
             term = S.resolve_term(bc, term_code)
+
+            # Conflict checks only make sense within one term, so the term has
+            # to be known before the predicate is built.
+            my_term_sections = sched.sections_in_term(my_sections, term.code)
+            if my_sections and not my_term_sections:
+                click.echo(
+                    f"(note: your schedule has no sections in {term.description}, "
+                    "so conflict checks are skipped — saved CRNs are from another term)",
+                    err=True,
+                )
+            if no_conflicts:
+                if not entries:
+                    click.echo(
+                        f"(no CRNs in {sched.SCHEDULE_FILE} — --no-conflicts has nothing to compare against)",
+                        err=True,
+                    )
+                elif my_term_sections:
+                    predicates.append(F.no_conflicts(my_term_sections))
+
             with console.status(f"Querying {term.description}…", spinner="dots"):
                 fetched, source = S.fetch_sections(
                     bc,
@@ -255,11 +272,11 @@ def search_cmd(
         term.description,
         query_desc,
         taken_courses=taken or None,
-        scheduled_sections=my_sections or None,
+        scheduled_sections=my_term_sections or None,
     )
 
     if pick:
-        menu_mod.interactive_pick(sections, my_sections, taken)
+        menu_mod.interactive_pick(sections, my_term_sections, taken)
 
 
 @main.command("menu")
@@ -427,7 +444,7 @@ def schedule_show() -> None:
         return
     resolved, missing = sched.resolve(entries)
     if resolved:
-        render_sections(resolved, "your schedule", f"{len(resolved)} CRN(s) resolved")
+        render_schedule(resolved)
     if missing:
         click.echo(
             f"\nCould not resolve {len(missing)} CRN(s) — not in cache yet: "

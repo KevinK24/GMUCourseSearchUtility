@@ -130,6 +130,22 @@ def render_sections(
         )
 
 
+def render_schedule(sections: list[Section]) -> None:
+    """Render a saved schedule, one table per term.
+
+    A schedule file outlives the term it was built for, so grouping makes
+    leftovers from a finished semester obvious instead of silently mixing
+    them in with the current one.
+    """
+    groups: dict[str, list[Section]] = {}
+    for s in sections:
+        groups.setdefault(s.term_desc or "unknown term", []).append(s)
+    # Newest term first, matching how Banner lists them.
+    for term_desc in sorted(groups, key=lambda d: groups[d][0].term or "", reverse=True):
+        rows = groups[term_desc]
+        render_sections(rows, term_desc, f"{len(rows)} CRN(s)")
+
+
 def render_section_detail(s: Section, term_desc: str) -> None:
     lines: list[str] = []
     lines.append(f"[bold]{s.subject_course}[/bold] — {s.title}")

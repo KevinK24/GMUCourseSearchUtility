@@ -22,7 +22,7 @@ from . import schedule as sched
 from . import search as S
 from .banner import BannerClient, BannerError
 from .models import Section, Term
-from .render import console, render_sections
+from .render import console, render_schedule, render_sections
 
 
 class MenuUnavailable(RuntimeError):
@@ -331,7 +331,16 @@ def _do_search(questionary, client: BannerClient, term: Term) -> None:
             f"conflict checks skip them: {', '.join(missing)})[/yellow]"
         )
 
-    predicates, warnings = _build_predicates(params, my_sections)
+    # Sections from another term can't clash with these results.
+    my_term_sections = sched.sections_in_term(my_sections, term.code)
+    if my_sections and not my_term_sections:
+        console.print(
+            f"[yellow]Your schedule has no sections in {term.description},[/yellow] "
+            "[dim]so conflict checks are skipped — the saved CRNs are from "
+            "another term.[/dim]"
+        )
+
+    predicates, warnings = _build_predicates(params, my_term_sections)
     for w in warnings:
         console.print(f"[yellow]{w}[/yellow]")
 
@@ -375,13 +384,13 @@ def _do_search(questionary, client: BannerClient, term: Term) -> None:
         term.description,
         _describe(params, len(sections), len(fetched), source),
         taken_courses=taken or None,
-        scheduled_sections=my_sections or None,
+        scheduled_sections=my_term_sections or None,
     )
 
     if sections and questionary.confirm(
         "Add any of these to your schedule?", default=False
     ).ask():
-        interactive_pick(sections, my_sections, taken)
+        interactive_pick(sections, my_term_sections, taken)
 
 
 def _do_show_schedule() -> None:
@@ -394,7 +403,7 @@ def _do_show_schedule() -> None:
         return
     resolved, missing = sched.resolve(entries)
     if resolved:
-        render_sections(resolved, "your schedule", f"{len(resolved)} CRN(s) resolved")
+        render_schedule(resolved)
     if missing:
         console.print(
             f"[yellow]Could not resolve {len(missing)} CRN(s) — not cached yet: "

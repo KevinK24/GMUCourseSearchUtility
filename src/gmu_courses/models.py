@@ -92,6 +92,19 @@ class Section:
     raw: dict[str, Any] = field(repr=False, compare=False)
 
     @property
+    def term(self) -> str | None:
+        """Banner term code this section belongs to, e.g. '202710' for Spring 2027.
+
+        Sections from different terms can never conflict with each other, so
+        anything comparing meeting times has to know this.
+        """
+        return self.raw.get("term")
+
+    @property
+    def term_desc(self) -> str | None:
+        return self.raw.get("termDesc")
+
+    @property
     def subject_course(self) -> str:
         return f"{self.subject} {self.course_number}"
 

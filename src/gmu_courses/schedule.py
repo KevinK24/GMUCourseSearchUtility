@@ -123,6 +123,16 @@ def remove_crn(crn: str) -> bool:
     return touched
 
 
+def sections_in_term(sections: list[Section], term_code: str) -> list[Section]:
+    """Just the sections belonging to `term_code`.
+
+    A saved schedule outlives the term it was built for. Comparing a Fall
+    section's meeting times against Spring candidates produces conflicts that
+    cannot exist, so conflict checking is always scoped to one term.
+    """
+    return [s for s in sections if s.term == term_code]
+
+
 def resolve(entries: list[ScheduleEntry]) -> tuple[list[Section], list[str]]:
     """Look each CRN up in the disk cache. Returns (resolved, unresolved_crns)."""
     resolved: list[Section] = []

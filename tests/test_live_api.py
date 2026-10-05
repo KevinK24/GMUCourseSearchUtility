@@ -58,6 +58,14 @@ def test_search_returns_parseable_sections(cs_sections):
         assert s.course_number
 
 
+def test_sections_carry_their_term(cs_sections, terms):
+    """Conflict scoping depends on this; if Banner drops it, everything breaks quietly."""
+    expected = next(t for t in terms if "view only" not in t.description.lower()).code
+    assert all(s.term == expected for s in cs_sections), (
+        "sections are missing the term code conflict scoping relies on"
+    )
+
+
 def test_sections_carry_the_fields_the_ui_renders(cs_sections):
     """Every column in the results table needs its field to survive parsing."""
     assert any(s.title for s in cs_sections), "no section has a title"
